@@ -13,9 +13,9 @@
   <dt>Difficulty</dt>
   <dd><%=Util.calcDifficulty(parseInt(block.bits))%> (Bits: <%=hexDifficulty%>)</dd>
   <dt>Transactions</dt>
-  <dd><%=block.txs.length%></dd>
+  <dd><%=txs.length%></dd>
   <dt>Total</dt>
-  <dd><%=Util.formatValue(block.totalOut)%> BTC</dd>
+  <dd><%=Util.formatValue(totalOut)%> BTC</dd>
   <dt>Size</dt>
   <dd><%=block.size%> bytes</dd>
   <dt>Merkle root</dt>
@@ -35,7 +35,7 @@
 	</tr>
   </thead>
   <tbody>
-<% block.txs.forEach(function (tx) { %>
+<% txs.forEach(function (tx) { %>
 	<tr>
 	  <td><span class="mono"><a href="../../tx/<%=Util.formatHashFull(tx.getHash())%>"><%=Util.formatHashAlt(tx.getHash())%></a></span></td>
 	  <td><%=tx.fee ? Util.formatValue(tx.fee) : ""%></td>
@@ -43,7 +43,7 @@
 	  <td style="white-space: nowrap;">
 		<% tx.ins.forEach(function (txin) { %>
 			<% if (txin.isCoinBase()) { %>
-				Generation: 50 + <%=Util.formatValue(block.totalFee)%> total fees
+				Generation: 50 + <%=Util.formatValue(totalFee)%> total fees
 			<% } else { %>
 				<%=Util.formatValue(txin.source.value)%>
 				<%

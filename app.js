@@ -14,13 +14,8 @@ global.bigint = bitcoin.bigint;
 var app = module.exports = express.createServer();
 
 var storage = new bitcoin.Storage('mongodb://localhost/bitcoin');
-var node = new bitcoin.Node();
-var chain = node.getBlockChain();
-
-node.cfg.network.bootstrap = [];
-node.addPeer('localhost');
-
-node.start();
+//var node = new bitcoin.Node();
+//var chain = node.getBlockChain();
 
 // Configuration
 
@@ -51,7 +46,7 @@ function getOutpoints(txs, callback) {
 			txList.push(txin.outpoint.hash);
 		});
 	});
-	storage.Transaction.find({hash: {"$in": txList}}, function (err, result) {
+	storage.Transaction.find({_id: {"$in": txList}}, function (err, result) {
 		if (err) return callback(err);
 
 		var txIndex = {};
@@ -75,21 +70,26 @@ function getOutpoints(txs, callback) {
 			});
 			if (!tx.isCoinBase()) tx.fee = tx.totalIn.sub(tx.totalOut);
 		});
-		callback(null);
+
+    try {
+		  callback(null);
+    } catch (e) {
+      return callback(e);
+    }
 	});
 }
 
 // Params
 
 app.param('blockHash', function (req, res, next, hash){
-	hash = new Buffer(hash, 'hex').reverse();
-	chain.getBlockByHash(hash, function (err, block) {
+	hash = Util.decodeHex(hash).reverse();
+	storage.Block.findOne({_id: hash}, function (err, block) {
 		if (err) return next(err);
 
-		chain.getBlockByPrev(hash, function (err, nextBlock) {
+		storage.Block.findOne({prev_hash: hash}, function (err, nextBlock) {
 			if (err) return next(err);
 
-			storage.Transaction.find({block: block.hash}, function (err, txs) {
+			storage.Transaction.find({block: block._id}, function (err, txs) {
 				if (err) return next(err);
 
 				getOutpoints(txs, function (err) {
@@ -103,12 +103,12 @@ app.param('blockHash', function (req, res, next, hash){
 						});
 						if (tx.fee) totalFee = totalFee.add(tx.fee);
 					});
-					block.totalFee = totalFee;
-					block.totalOut = totalOut;
 
 					req.block = block;
 					req.nextBlock = nextBlock;
-					req.block.txs = txs;
+					req.txs = txs;
+					req.totalFee = totalFee;
+					req.totalOut = totalOut;
 
 					next();
 				});
@@ -118,12 +118,12 @@ app.param('blockHash', function (req, res, next, hash){
 });
 
 app.param('txHash', function (req, res, next, hash){
-	hash = new Buffer(hash, 'hex').reverse();
-	storage.Transaction.findOne({hash: hash}, function (err, tx) {
+	hash = Util.decodeHex(hash).reverse();
+	storage.Transaction.findOne({_id: hash}, function (err, tx) {
 		if (err) return next(err);
 		req.tx = tx;
 
-		storage.Block.findOne({hash: tx.block}, function (err, block) {
+		storage.Block.findOne({_id: tx.block}, function (err, block) {
 			if (err) return next(err);
 			req.block = block;
 
@@ -139,123 +139,110 @@ app.param('txHash', function (req, res, next, hash){
 app.param('addrBase58', function (req, res, next, addr){
 	var pubKeyHash = Util.addressToPubKeyHash(addr);
 	req.pubKeyHash = pubKeyHash;
-	storage.Account.findOne({pubKeyHash: pubKeyHash.toString('base64')}, function (err, account) {
+
+	storage.Transaction.find({affects: pubKeyHash}).exec(function (err, txs) {
 		if (err) return next(err);
 
-		if (!account) return next(new Error("Address "+addr+" not found!"));
-
-		var txList = [];
-		account.txs.forEach(function (txRef) {
-			txList.push(txRef.tx);
+		var blockIds = [];
+		txs.forEach(function (tx) {
+			if (blockIds.indexOf(tx.block) == -1) blockIds.push(tx.block);
 		});
 
-		storage.Transaction.find({hash: {$in: txList}}).exec(function (err, txs) {
+		storage.Block.find({_id: {$in: blockIds}}, function (err, blocks) {
 			if (err) return next(err);
 
-			var blockIds = [];
-			txs.forEach(function (tx) {
-				if (blockIds.indexOf(tx.block) == -1) blockIds.push(tx.block);
-			});
-
-			storage.Block.find({hash: {$in: blockIds}}, function (err, blocks) {
+			getOutpoints(txs, function (err) {
 				if (err) return next(err);
 
-				getOutpoints(txs, function (err) {
-					if (err) return next(err);
-
-					var blkObj = {};
-					blocks.forEach(function (block) {
-						blkObj[block.hash.toString('base64')] = block;
-					});
-					var txsObj = {};
-					txs.forEach(function (tx) {
-						tx.blockObj = blkObj[tx.block.toString('base64')];
-						txsObj[tx.hash.toString('base64')] = tx;
-					});
-					req.txsObj = txsObj;
-
-					var receivedCount = 0;
-					var receivedAmount = bigint(0);
-					var sentCount = 0;
-					var sentAmount = bigint(0);
-
-					txOutsObj = {};
-					account.txs.forEach(function (txRef, index) {
-						var tx = txsObj[txRef.tx];
-						for (var i = 0; i < tx.outs.length; i++) {
-							var txout = tx.outs[i];
-							var script = txout.getScript();
-
-							var outPubKey = script.simpleOutPubKeyHash();
-
-							if (outPubKey && pubKeyHash.compare(outPubKey) == 0) {
-								receivedCount++;
-								var outIndex =
-									tx.hash.toString('base64')+":"+
-									i;
-								txOutsObj[outIndex] = txout;
-
-								receivedAmount = receivedAmount.add(Util.valueToBigInt(txout.value));
-
-								tx.myOut = txout;
-							}
-						};
-					});
-
-					txs.forEach(function (tx, index) {
-						if (tx.isCoinBase()) return;
-
-						tx.ins.forEach(function (txin, j) {
-							var script = txin.getScript();
-
-							var inPubKey = Util.sha256ripe160(script.simpleInPubKey());
-
-							if (inPubKey && pubKeyHash.compare(inPubKey) == 0) {
-								sentCount++;
-								var outIndex =
-									txin.outpoint.hash.toString('base64')+":"+
-									txin.outpoint.index;
-
-								if (!txOutsObj[outIndex]) {
-									winston.warn('Outgoing transaction is missing matching incoming transaction.');
-									return;
-								}
-								txOutsObj[outIndex].spent = {
-									txin: txin,
-									tx: tx
-								};
-
-								sentAmount = sentAmount.add(Util.valueToBigInt(txin.source.value));
-
-								tx.myIn = txin;
-							}
-						});
-					});
-
-					// Calculate the current available balance
-					var totalAvailable = bigint(0);
-					for (var i in txOutsObj) {
-						if (!txOutsObj[i].spent) {
-							totalAvailable = totalAvailable.add(Util.valueToBigInt(txOutsObj[i].value));
-						}
-					}
-
-					// Bring txs into correct order
-					txs = account.txs.map(function (txRef) {
-						return txsObj[txRef.tx];
-					});
-
-					account.totalAvailable = totalAvailable;
-					account.receivedCount = receivedCount;
-					account.receivedAmount = receivedAmount;
-					account.sentCount = sentCount;
-					account.sentAmount = sentAmount;
-
-					req.account = account;
-					req.txs = txs;
-					req.txOutsObj = txOutsObj;
-					next();
+				var blkObj = {};
+				blocks.forEach(function (block) {
+					blkObj[block.hash.toString('base64')] = block;
 				});
+				var txsObj = {};
+				txs.forEach(function (tx) {
+					tx.blockObj = blkObj[tx.block.toString('base64')];
+					txsObj[tx.hash.toString('base64')] = tx;
+				});
+				req.txsObj = txsObj;
+
+				var receivedCount = 0;
+				var receivedAmount = bigint(0);
+				var sentCount = 0;
+				var sentAmount = bigint(0);
+
+				var txOutsObj = {};
+				txs.forEach(function (tx, index) {
+					for (var i = 0; i < tx.outs.length; i++) {
+						var txout = tx.outs[i];
+						var script = txout.getScript();
+
+						var outPubKey = script.simpleOutPubKeyHash();
+
+						if (outPubKey && pubKeyHash.compare(outPubKey) == 0) {
+							receivedCount++;
+							var outIndex =
+								tx.hash.toString('base64')+":"+
+								i;
+							txOutsObj[outIndex] = txout;
+
+							receivedAmount = receivedAmount.add(Util.valueToBigInt(txout.value));
+
+							tx.myOut = txout;
+						}
+					};
+				});
+
+				txs.forEach(function (tx, index) {
+					if (tx.isCoinBase()) return;
+
+					tx.ins.forEach(function (txin, j) {
+						var script = txin.getScript();
+
+						var inPubKey = Util.sha256ripe160(script.simpleInPubKey());
+
+						if (inPubKey && pubKeyHash.compare(inPubKey) == 0) {
+							sentCount++;
+							var outIndex =
+								txin.outpoint.hash.toString('base64')+":"+
+								txin.outpoint.index;
+
+							if (!txOutsObj[outIndex]) {
+								winston.warn('Outgoing transaction is missing matching incoming transaction.');
+								return;
+							}
+							txOutsObj[outIndex].spent = {
+								txin: txin,
+								tx: tx
+							};
+
+							sentAmount = sentAmount.add(Util.valueToBigInt(txin.source.value));
+
+							tx.myIn = txin;
+						}
+					});
+				});
+
+				// Calculate the current available balance
+				var totalAvailable = bigint(0);
+				for (var i in txOutsObj) {
+					if (!txOutsObj[i].spent) {
+						totalAvailable = totalAvailable.add(Util.valueToBigInt(txOutsObj[i].value));
+					}
+				}
+
+        var account = {};
+        account.pubKeyHash = pubKeyHash;
+				account.totalAvailable = totalAvailable;
+				account.receivedCount = receivedCount;
+				account.receivedAmount = receivedAmount;
+				account.sentCount = sentCount;
+				account.sentAmount = sentAmount;
+
+				req.account = account;
+				req.txs = txs;
+				req.txOutsObj = txOutsObj;
+
+				next();
 			});
 		});
 	});
@@ -277,8 +264,11 @@ app.get('/block/:blockHash', function (req, res) {
 	res.render('block', {
 		title: 'Block '+req.block.height+' - Bitcoin Explorer',
 		block: req.block,
+    txs: req.txs,
 		nextBlock: req.nextBlock,
 		totalAmount: req.totalAmount,
+		totalFee: req.totalFee,
+		totalOut: req.totalOut,
 		hexDifficulty: bigint(req.block.bits).toString(16)
 	});
 });
