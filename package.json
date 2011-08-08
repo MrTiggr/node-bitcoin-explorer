@@ -1,0 +1,35 @@
+{
+  "name": "bitcoin-explorer",
+  "version": "0.1.0",
+  "description": "A block explorer clone built using BitcoinJS",
+  "main": "./lib/bitcoin",
+  "keywords": [
+    "bitcoin",
+    "realtime",
+    "block",
+    "transaction",
+    "explorer",
+    "monitoring",
+    "viewer"
+  ],
+
+  "scripts": {
+    "start": "node app.js"
+  },
+
+  "dependencies": {
+    "bitcoin-p2p": ">=0.0.8",
+    "bigint": ">=0.3.1",
+    "ejs": ">=0.4.3",
+    "lru-cache": ">=1.0.4",
+    "winston": ">=0.3.4",
+    "express": ">=2.4.4"
+  },
+
+  "author": "Stefan Thomas <justmoon@members.fsf.org> (http://www.justmoon.net)",
+
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/bitcoinjs/node-bitcoin-explorer.git"
+  }
+}
