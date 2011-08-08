@@ -47,7 +47,7 @@
 			<% } else { %>
 				<%=Util.formatValue(txin.source.value)%>
 				<%
-				  var addr = Util.pubKeyHashToAddress(Util.sha256ripe160(txin.getScript().simpleInPubKey()));
+				  var addr = Util.pubKeyHashToAddress(txin.source.getScript().simpleOutPubKeyHash());
 			      if (addr.length) { %>
 			    <a href="../../address/<%=addr%>"><%=addr%></a>
 		       <% } %>

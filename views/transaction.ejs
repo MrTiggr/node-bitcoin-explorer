@@ -37,7 +37,7 @@
 		  <% } else { %>
 			  <td><a class="mono" href="../../tx/<%=Util.formatHashFull(txin.outpoint.hash)%>"><%=Util.formatHashAlt(txin.outpoint.hash)%>&hellip;</a> (<%=txin.outpoint.index%>)</td>
 			  <td>N/A</td>
-			  <td><a href="../../address/<%=Util.pubKeyHashToAddress(Util.sha256ripe160(txin.getScript().simpleInPubKey()))%>"><%=Util.pubKeyHashToAddress(Util.sha256ripe160(txin.getScript().simpleInPubKey()))%></a></td>
+			  <td><a href="../../address/<%=Util.pubKeyHashToAddress(txin.source.getScript().simpleOutPubKeyHash())%>"><%=Util.pubKeyHashToAddress(txin.source.getScript().simpleOutPubKeyHash())%></a></td>
 			  <td><%=txin.getScript().getInType()%></td>
 		  <% } %>
 		  <td><span class="mono"><%=txin.getScript().getStringContent()%></span></td>

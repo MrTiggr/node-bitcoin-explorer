@@ -8,7 +8,7 @@ var winston = require('winston');
 var bitcoin = require('bitcoin-p2p');
 var bigint = require('bigint');
 
-global.Util = bitcoin.Util;
+global.Util = require('./util');
 global.bigint = bitcoin.bigint;
 
 var app = module.exports = express.createServer();
@@ -49,29 +49,34 @@ function getOutpoints(txs, callback) {
 	storage.Transaction.find({_id: {"$in": txList}}, function (err, result) {
 		if (err) return callback(err);
 
-		var txIndex = {};
-		result.forEach(function (tx) {
-			txIndex[tx.hash.toString('base64')] = tx;
-		});
-
-		txs.forEach(function (tx, i) {
-			tx.totalIn = bigint(0);
-			tx.totalOut = bigint(0);
-			tx.ins.forEach(function (txin, j) {
-				var op = txin.outpoint;
-				var srctx = txIndex[op.hash.toString('base64')];
-				if (srctx) {
-					txin.source = srctx.outs[op.index];
-					tx.totalIn = tx.totalIn.add(Util.valueToBigInt(txin.source.value));
-				}
-			});
-			tx.outs.forEach(function (txout) {
-				tx.totalOut = tx.totalOut.add(Util.valueToBigInt(txout.value));
-			});
-			if (!tx.isCoinBase()) tx.fee = tx.totalIn.sub(tx.totalOut);
-		});
-
     try {
+		  var txIndex = {};
+		  result.forEach(function (tx) {
+			  txIndex[tx.hash.toString('base64')] = tx;
+		  });
+
+		  txs.forEach(function (tx, i) {
+			  tx.totalIn = bigint(0);
+			  tx.totalOut = bigint(0);
+			  tx.ins.forEach(function (txin, j) {
+          if (txin.isCoinBase()) return;
+
+				  var op = txin.outpoint;
+				  var srctx = txIndex[op.hash.toString('base64')];
+				  if (srctx) {
+					  txin.source = srctx.outs[op.index];
+					  tx.totalIn = tx.totalIn.add(Util.valueToBigInt(txin.source.value));
+				  } else {
+            throw new Error("Unable to find source output for tx "+
+                            Util.formatHash(tx.hash));
+          }
+			  });
+			  tx.outs.forEach(function (txout) {
+				  tx.totalOut = tx.totalOut.add(Util.valueToBigInt(txout.value));
+			  });
+			  if (!tx.isCoinBase()) tx.fee = tx.totalIn.sub(tx.totalOut);
+		  });
+
 		  callback(null);
     } catch (e) {
       return callback(e);
@@ -141,7 +146,9 @@ app.param('addrBase58', function (req, res, next, addr){
 	var pubKeyHash = Util.addressToPubKeyHash(addr);
 	req.pubKeyHash = pubKeyHash;
 
-	storage.Transaction.find({affects: pubKeyHash}).exec(function (err, txs) {
+  // TODO: We have to limit no of transactions. Need to implement paging and fix
+  //       "spent in" for this case.
+	storage.Transaction.find({affects: pubKeyHash}).limit(100).exec(function (err, txs) {
 		if (err) return next(err);
 
 		var txList = txs.map(function (tx) {
@@ -199,11 +206,11 @@ app.param('addrBase58', function (req, res, next, addr){
 					if (tx.isCoinBase()) return;
 
 					tx.ins.forEach(function (txin, j) {
-						var script = txin.getScript();
+						var script = txin.source.getScript();
 
-						var inPubKey = Util.sha256ripe160(script.simpleInPubKey());
+						var outPubKey = script.simpleOutPubKeyHash();
 
-						if (inPubKey && pubKeyHash.compare(inPubKey) == 0) {
+						if (outPubKey && pubKeyHash.compare(outPubKey) == 0) {
 							sentCount++;
 							var outIndex =
 								txin.outpoint.hash.toString('base64')+":"+
@@ -224,6 +231,11 @@ app.param('addrBase58', function (req, res, next, addr){
 						}
 					});
 				});
+
+        // Make sure the transactions actually have something to do with us
+        txs = txs.filter(function (tx) {
+          return tx.myOut || tx.myIn;
+        });
 
 				// Calculate the current available balance
 				var totalAvailable = bigint(0);

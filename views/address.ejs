@@ -39,7 +39,7 @@
 				<% if (txin.isCoinBase()) { %>
 					Generation
 				<% } else { %>
-					<a href="../../address/<%=Util.pubKeyHashToAddress(Util.sha256ripe160(txin.getScript().simpleInPubKey()))%>"><%=Util.pubKeyHashToAddress(Util.sha256ripe160(txin.getScript().simpleInPubKey()))%></a>
+					<a href="../../address/<%=Util.pubKeyHashToAddress(txin.source.getScript().simpleOutPubKeyHash())%>"><%=Util.pubKeyHashToAddress(txin.source.getScript().simpleOutPubKeyHash())%></a>
 				<% } %><br>
 			<% }); %>
 		  </td>
