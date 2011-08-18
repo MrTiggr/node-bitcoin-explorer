@@ -6,10 +6,9 @@
 var express = require('express');
 var winston = require('winston');
 var bitcoin = require('bitcoin-p2p');
-var bigint = require('bigint');
+var bigint = global.bigint = bitcoin.bigint;
 
 global.Util = require('./util');
-global.bigint = bitcoin.bigint;
 
 var app = module.exports = express.createServer();
 
